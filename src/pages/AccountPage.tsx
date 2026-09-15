@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   User, Lock, Cpu, Download, Calendar, Crown, Loader2, AlertCircle,
   CheckCircle, Camera, Key, Clock, Shield, ChevronRight, Infinity,
@@ -27,7 +27,7 @@ export function AccountPage({ onNavigate }: AccountPageProps) {
   }, [refreshProfile]);
 
   useEffect(() => {
-    const interval = setInterval(() => refreshProfile(), 6 * 60 * 60 * 1000);
+    const interval = setInterval(() => refreshProfile(), 1 * 60 * 60 * 1000);
     return () => clearInterval(interval);
   }, [refreshProfile]);
 
@@ -35,17 +35,25 @@ export function AccountPage({ onNavigate }: AccountPageProps) {
     setAvatarUrl(profile?.avatar_url ?? null);
   }, [profile?.avatar_url]);
 
+  const profileRef = useRef(profile);
+  profileRef.current = profile;
+
   useEffect(() => {
-    if (profile?.subscription_expires_at && profile.subscription_type !== 'lifetime') {
-      const expiry = new Date(profile.subscription_expires_at).getTime();
-      const now = Date.now();
-      const diff = Math.ceil((expiry - now) / (1000 * 60 * 60 * 24));
-      setDaysLeft(diff > 0 ? diff : 0);
-    } else if (profile?.subscription_type === 'lifetime') {
-      setDaysLeft(null);
-    } else {
-      setDaysLeft(0);
-    }
+    const calc = () => {
+      const p = profileRef.current;
+      if (p?.subscription_type === 'lifetime') {
+        setDaysLeft(null);
+      } else if (p?.subscription_expires_at) {
+        const expiry = new Date(p.subscription_expires_at).getTime();
+        const diff = Math.ceil((expiry - Date.now()) / (1000 * 60 * 60 * 24));
+        setDaysLeft(diff > 0 ? diff : 0);
+      } else {
+        setDaysLeft(0);
+      }
+    };
+    calc();
+    const ticker = setInterval(calc, 60 * 60 * 1000);
+    return () => clearInterval(ticker);
   }, [profile?.subscription_expires_at, profile?.subscription_type]);
 
   if (!user || !profile) {
