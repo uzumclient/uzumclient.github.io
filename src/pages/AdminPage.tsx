@@ -26,6 +26,8 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
   const [prices, setPrices] = useState<PlanPrice[]>([]);
   const [priceEdits, setPriceEdits] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [proofs, setProofs] = useState<Record<string, string>>({});
+  const [proofLoading, setProofLoading] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showNewsModal, setShowNewsModal] = useState(false);
@@ -50,10 +52,12 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
   const loadAll = async () => {
     setLoading(true);
 
-    const [usersRes, newsRes, mediaRes, promoRes, pricesRes, emailRes] = await Promise.all([
+    const payIds = ['30day', '90day', 'lifetime', 'hwid_reset'];
+    const [usersRes, newsRes, payRes, mediaOnlyRes, promoRes, pricesRes, emailRes] = await Promise.all([
       safeQuery(supabase.from('profiles').select('*').order('created_at', { ascending: false })),
       safeQuery(supabase.from('news').select('*').order('created_at', { ascending: false })),
-      safeQuery(supabase.from('media_applications').select('*').order('created_at', { ascending: false })),
+      safeQuery(supabase.from('media_applications').select('id, user_id, channel_name, channel_url, subscriber_count, avg_views, status, created_at, reviewed_at, promo_code, discount_percent').in('channel_url', payIds).order('created_at', { ascending: false })),
+      safeQuery(supabase.from('media_applications').select('*').not('channel_url', 'in', '(30day,90day,lifetime,hwid_reset)').order('created_at', { ascending: false })),
       safeQuery(supabase.from('promo_codes').select('*').order('created_at', { ascending: false })),
       safeQuery(supabase.from('plan_prices').select('*').order('id', { ascending: true })),
       safeQuery(supabase.rpc('get_all_emails')),
@@ -77,14 +81,16 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
     if (newsRes.status === 'fulfilled' && (newsRes.value as any)?.data) setNews((newsRes.value as any).data as NewsItem[]);
     else setNews([]);
 
-    if (mediaRes.status === 'fulfilled' && (mediaRes.value as any)?.data) {
-      const all = (mediaRes.value as any).data as MediaApplication[];
-      const paymentPlanIds = ['30day', '90day', 'lifetime', 'hwid_reset'];
-      setMediaApps(all.filter(a => !paymentPlanIds.includes(a.channel_url)));
-      setPaymentRequests(all.filter(a => paymentPlanIds.includes(a.channel_url)) as PaymentRequest[]);
+    if (payRes.status === 'fulfilled' && (payRes.value as any)?.data) {
+      setPaymentRequests((payRes.value as any).data as PaymentRequest[]);
+    } else {
+      setPaymentRequests([]);
+    }
+
+    if (mediaOnlyRes.status === 'fulfilled' && (mediaOnlyRes.value as any)?.data) {
+      setMediaApps((mediaOnlyRes.value as any).data as MediaApplication[]);
     } else {
       setMediaApps([]);
-      setPaymentRequests([]);
     }
 
     if (promoRes.status === 'fulfilled' && (promoRes.value as any)?.data) setPromos((promoRes.value as any).data as PromoCode[]);
@@ -353,6 +359,18 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
       alert("Xatolik: o'chirilmadi. " + error.message);
     }
     setActionLoading(null);
+  };
+
+  const viewProof = async (id: string) => {
+    if (proofs[id]) return;
+    setProofLoading(id);
+    const { data, error } = await supabase.from('media_applications').select('description').eq('id', id).maybeSingle();
+    if (!error && (data as any)?.description) {
+      setProofs(prev => ({ ...prev, [id]: (data as any).description as string }));
+    } else {
+      alert("Chek yuklanmadi. " + (error?.message || ''));
+    }
+    setProofLoading(null);
   };
 
   const deleteMediaApp = async (id: string) => {
@@ -775,17 +793,26 @@ Yangilik qo'shish
                             <Cpu className="w-3 h-3" /> HWID Yangilash so'rovi
                           </p>
                         )}
-                        {req.description && req.description.startsWith('data:') && (
-                          <div className="mt-2">
-                            <p className="text-xs text-gray-500 mb-1">Skrinshot:</p>
+                        <div className="mt-2">
+                          <p className="text-xs text-gray-500 mb-1">Skrinshot:</p>
+                          {proofs[req.id] ? (
                             <img
-                              src={req.description}
+                              src={proofs[req.id]}
                               alt="To'lov cheki"
                               className="max-w-xs max-h-48 rounded-xl border border-white/10 cursor-pointer hover:scale-105 transition-transform"
-                              onClick={() => window.open(req.description!, '_blank')}
+                              onClick={() => window.open(proofs[req.id], '_blank')}
                             />
-                          </div>
-                        )}
+                          ) : (
+                            <button
+                              onClick={() => viewProof(req.id)}
+                              disabled={proofLoading === req.id}
+                              className="px-3 py-2 rounded-xl glass-card text-xs font-medium text-secondary-300 hover:bg-secondary-500/10 transition-all flex items-center gap-1.5 disabled:opacity-50"
+                            >
+                              {proofLoading === req.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
+                              Chekni ko'rish
+                            </button>
+                          )}
+                        </div>
                       </div>
 
                       <div className="flex gap-2 flex-shrink-0">
