@@ -26,6 +26,7 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
   const [prices, setPrices] = useState<PlanPrice[]>([]);
   const [priceEdits, setPriceEdits] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
+  const [diag, setDiag] = useState<string>('');
   const [search, setSearch] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showNewsModal, setShowNewsModal] = useState(false);
@@ -59,32 +60,48 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
       safeQuery(supabase.rpc('get_all_emails')),
     ]);
 
-    const profiles = usersRes.status === 'fulfilled' ? (usersRes.value.data as Profile[] | null) : null;
+    const stat = (r: PromiseSettledResult<any>, name: string) => {
+      if (r.status === 'rejected') return `${name}:TIMEOUT/ERR`;
+      const v = r.value as any;
+      if (v?.error) return `${name}:ERR(${v.error.message || v.error.code || 'unknown'})`;
+      const n = Array.isArray(v?.data) ? v.data.length : (v?.data ? 1 : 0);
+      return `${name}:${n}`;
+    };
+    setDiag([stat(usersRes, 'users'), stat(newsRes, 'news'), stat(mediaRes, 'media'), stat(promoRes, 'promo'), stat(pricesRes, 'prices'), stat(emailRes, 'emails')].join(' | '));
+
+    const profiles = usersRes.status === 'fulfilled' ? ((usersRes.value as any)?.data as Profile[] | null) : null;
 
     if (profiles) {
-      const emailData = emailRes.status === 'fulfilled' ? emailRes.value.data : null;
+      const emailData = emailRes.status === 'fulfilled' ? (emailRes.value as any)?.data : null;
       const emailMap = new Map<string, string>();
       if (Array.isArray(emailData)) {
         for (const e of emailData) {
           if (e.user_id && e.email) emailMap.set(e.user_id, e.email);
         }
       }
-      setUsers(profiles.map(u => ({ ...u, email: emailMap.get(u.id) || u.email })));
+      setUsers(profiles.map(u => ({ ...u, email: emailMap.get(u.id) || (u as any).email || null })));
+    } else {
+      setUsers([]);
     }
 
-    if (newsRes.status === 'fulfilled' && newsRes.value.data) setNews(newsRes.value.data as NewsItem[]);
+    if (newsRes.status === 'fulfilled' && (newsRes.value as any)?.data) setNews((newsRes.value as any).data as NewsItem[]);
+    else setNews([]);
 
-    if (mediaRes.status === 'fulfilled' && mediaRes.value.data) {
-      const all = mediaRes.value.data as MediaApplication[];
+    if (mediaRes.status === 'fulfilled' && (mediaRes.value as any)?.data) {
+      const all = (mediaRes.value as any).data as MediaApplication[];
       const paymentPlanIds = ['30day', '90day', 'lifetime', 'hwid_reset'];
       setMediaApps(all.filter(a => !paymentPlanIds.includes(a.channel_url)));
       setPaymentRequests(all.filter(a => paymentPlanIds.includes(a.channel_url)) as PaymentRequest[]);
+    } else {
+      setMediaApps([]);
+      setPaymentRequests([]);
     }
 
-    if (promoRes.status === 'fulfilled' && promoRes.value.data) setPromos(promoRes.value.data as PromoCode[]);
+    if (promoRes.status === 'fulfilled' && (promoRes.value as any)?.data) setPromos((promoRes.value as any).data as PromoCode[]);
+    else setPromos([]);
 
-    if (pricesRes.status === 'fulfilled' && pricesRes.value.data) {
-      const list = pricesRes.value.data as PlanPrice[];
+    if (pricesRes.status === 'fulfilled' && (pricesRes.value as any)?.data) {
+      const list = (pricesRes.value as any).data as PlanPrice[];
       setPrices(list);
       const m: Record<string, string> = {};
       for (const p of list) m[p.id] = String(p.price);
@@ -366,15 +383,29 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
     <div className="min-h-screen pt-24 pb-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex items-center gap-3 mb-8">
+        <div className="flex items-center gap-3 mb-4">
           <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-warning-500 to-warning-700 flex items-center justify-center shadow-lg shadow-warning-500/30">
             <Shield className="w-6 h-6 text-white" />
           </div>
-          <div>
+          <div className="flex-1">
             <h1 className="font-display font-bold text-3xl text-white">Admin panel</h1>
             <p className="text-sm text-gray-400">Barcha hisoblarni boshqaring</p>
           </div>
+          <button
+            onClick={() => loadAll()}
+            disabled={loading}
+            className="px-4 py-2.5 rounded-xl glass-card text-sm font-medium text-white hover:bg-white/10 transition-all flex items-center gap-2 disabled:opacity-50"
+            title="Ma'lumotlarni qayta yuklash"
+          >
+            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+            Yangilash
+          </button>
         </div>
+        {diag && (
+          <div className="mb-4 px-4 py-2 rounded-xl bg-black/30 border border-white/5">
+            <p className="font-mono text-[11px] text-gray-500 break-all">DB: {diag}</p>
+          </div>
+        )}
 
         {/* Tabs */}
         <div className="glass rounded-2xl p-1.5 flex gap-1 mb-6 overflow-x-auto no-scrollbar">
