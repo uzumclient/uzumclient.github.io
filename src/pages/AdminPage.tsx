@@ -38,64 +38,57 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
     loadAll();
   }, [profile?.is_admin]);
 
+  const withTimeout = <T,>(p: Promise<T>, ms: number): Promise<T> =>
+    Promise.race([p, new Promise<T>((_, rej) => setTimeout(() => rej(new Error('timeout')), ms))]);
+
+  const safeQuery = <T,>(p: Promise<T>, ms = 10000): Promise<PromiseSettledResult<T>> =>
+    withTimeout(p, ms).then(
+      v => ({ status: 'fulfilled' as const, value: v }),
+      e => ({ status: 'rejected' as const, reason: e }),
+    );
+
   const loadAll = async () => {
     setLoading(true);
 
-    try {
-      const [usersRes, newsRes, mediaRes, promoRes, pricesRes] = await Promise.allSettled([
-        supabase.from('profiles').select('*').order('created_at', { ascending: false }),
-        supabase.from('news').select('*').order('created_at', { ascending: false }),
-        supabase.from('media_applications').select('*').order('created_at', { ascending: false }),
-        supabase.from('promo_codes').select('*').order('created_at', { ascending: false }),
-        supabase.from('plan_prices').select('*').order('id', { ascending: true }),
-      ]);
+    const [usersRes, newsRes, mediaRes, promoRes, pricesRes, emailRes] = await Promise.all([
+      safeQuery(supabase.from('profiles').select('*').order('created_at', { ascending: false })),
+      safeQuery(supabase.from('news').select('*').order('created_at', { ascending: false })),
+      safeQuery(supabase.from('media_applications').select('*').order('created_at', { ascending: false })),
+      safeQuery(supabase.from('promo_codes').select('*').order('created_at', { ascending: false })),
+      safeQuery(supabase.from('plan_prices').select('*').order('id', { ascending: true })),
+      safeQuery(supabase.rpc('get_all_emails')),
+    ]);
 
-      const getUsers = () => usersRes.status === 'fulfilled' ? usersRes.value : null;
-      const usersData = getUsers();
+    const profiles = usersRes.status === 'fulfilled' ? (usersRes.value.data as Profile[] | null) : null;
 
-      if (promoRes.status === 'fulfilled' && promoRes.value.data) {
-        setPromos(promoRes.value.data as PromoCode[]);
-      }
-
-      if (pricesRes.status === 'fulfilled' && pricesRes.value.data) {
-        const list = pricesRes.value.data as PlanPrice[];
-        setPrices(list);
-        const m: Record<string, string> = {};
-        for (const p of list) m[p.id] = String(p.price);
-        setPriceEdits(m);
-      }
-
-      if (usersData?.data) {
-        const profiles = usersData.data as Profile[];
-
-        try {
-          const emailRes = await supabase.rpc('get_all_emails');
-          if (emailRes.data && Array.isArray(emailRes.data)) {
-            const emailMap = new Map<string, string>();
-            for (const e of emailRes.data) {
-              if (e.user_id && e.email) emailMap.set(e.user_id, e.email);
-            }
-            setUsers(profiles.map(u => ({ ...u, email: emailMap.get(u.id) || null })));
-          } else {
-            setUsers(profiles);
-          }
-        } catch {
-          setUsers(profiles);
+    if (profiles) {
+      const emailData = emailRes.status === 'fulfilled' ? emailRes.value.data : null;
+      const emailMap = new Map<string, string>();
+      if (Array.isArray(emailData)) {
+        for (const e of emailData) {
+          if (e.user_id && e.email) emailMap.set(e.user_id, e.email);
         }
       }
+      setUsers(profiles.map(u => ({ ...u, email: emailMap.get(u.id) || u.email })));
+    }
 
-      if (newsRes.status === 'fulfilled' && newsRes.value.data) {
-        setNews(newsRes.value.data as NewsItem[]);
-      }
+    if (newsRes.status === 'fulfilled' && newsRes.value.data) setNews(newsRes.value.data as NewsItem[]);
 
-      if (mediaRes.status === 'fulfilled' && mediaRes.value.data) {
-        const all = mediaRes.value.data as MediaApplication[];
-        const paymentPlanIds = ['30day', '90day', 'lifetime', 'hwid_reset'];
-        setMediaApps(all.filter(a => !paymentPlanIds.includes(a.channel_url)));
-        setPaymentRequests(all.filter(a => paymentPlanIds.includes(a.channel_url)) as PaymentRequest[]);
-      }
-    } catch (err) {
-      console.error('loadAll error:', err);
+    if (mediaRes.status === 'fulfilled' && mediaRes.value.data) {
+      const all = mediaRes.value.data as MediaApplication[];
+      const paymentPlanIds = ['30day', '90day', 'lifetime', 'hwid_reset'];
+      setMediaApps(all.filter(a => !paymentPlanIds.includes(a.channel_url)));
+      setPaymentRequests(all.filter(a => paymentPlanIds.includes(a.channel_url)) as PaymentRequest[]);
+    }
+
+    if (promoRes.status === 'fulfilled' && promoRes.value.data) setPromos(promoRes.value.data as PromoCode[]);
+
+    if (pricesRes.status === 'fulfilled' && pricesRes.value.data) {
+      const list = pricesRes.value.data as PlanPrice[];
+      setPrices(list);
+      const m: Record<string, string> = {};
+      for (const p of list) m[p.id] = String(p.price);
+      setPriceEdits(m);
     }
 
     setLoading(false);
