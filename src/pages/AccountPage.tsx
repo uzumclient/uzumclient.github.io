@@ -23,7 +23,16 @@ export function AccountPage({ onNavigate }: AccountPageProps) {
   const [downloading, setDownloading] = useState(false);
 
   useEffect(() => {
-    if (profile?.avatar_url) setAvatarUrl(profile.avatar_url);
+    refreshProfile();
+  }, [refreshProfile]);
+
+  useEffect(() => {
+    const interval = setInterval(() => refreshProfile(), 6 * 60 * 60 * 1000);
+    return () => clearInterval(interval);
+  }, [refreshProfile]);
+
+  useEffect(() => {
+    setAvatarUrl(profile?.avatar_url ?? null);
   }, [profile?.avatar_url]);
 
   useEffect(() => {
