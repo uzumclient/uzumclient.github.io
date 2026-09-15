@@ -41,46 +41,63 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
   const loadAll = async () => {
     setLoading(true);
 
-    const usersRes = await supabase.from('profiles').select('*').order('created_at', { ascending: false });
-    const newsRes = await supabase.from('news').select('*').order('created_at', { ascending: false });
-    const mediaRes = await supabase.from('media_applications').select('*').order('created_at', { ascending: false });
-    const promoRes = await supabase.from('promo_codes').select('*').order('created_at', { ascending: false });
-    if (promoRes.data) setPromos(promoRes.data as PromoCode[]);
-    const pricesRes = await supabase.from('plan_prices').select('*').order('id', { ascending: true });
-    if (pricesRes.data) {
-      const list = pricesRes.data as PlanPrice[];
-      setPrices(list);
-      const m: Record<string, string> = {};
-      for (const p of list) m[p.id] = String(p.price);
-      setPriceEdits(m);
-    }
+    try {
+      const [usersRes, newsRes, mediaRes, promoRes, pricesRes] = await Promise.allSettled([
+        supabase.from('profiles').select('*').order('created_at', { ascending: false }),
+        supabase.from('news').select('*').order('created_at', { ascending: false }),
+        supabase.from('media_applications').select('*').order('created_at', { ascending: false }),
+        supabase.from('promo_codes').select('*').order('created_at', { ascending: false }),
+        supabase.from('plan_prices').select('*').order('id', { ascending: true }),
+      ]);
 
-    if (usersRes.data) {
-      const profiles = usersRes.data as Profile[];
+      const getUsers = () => usersRes.status === 'fulfilled' ? usersRes.value : null;
+      const usersData = getUsers();
 
-      try {
-        const emailRes = await supabase.rpc('get_all_emails');
-        if (emailRes.data && Array.isArray(emailRes.data)) {
-          const emailMap = new Map<string, string>();
-          for (const e of emailRes.data) {
-            if (e.user_id && e.email) emailMap.set(e.user_id, e.email);
+      if (promoRes.status === 'fulfilled' && promoRes.value.data) {
+        setPromos(promoRes.value.data as PromoCode[]);
+      }
+
+      if (pricesRes.status === 'fulfilled' && pricesRes.value.data) {
+        const list = pricesRes.value.data as PlanPrice[];
+        setPrices(list);
+        const m: Record<string, string> = {};
+        for (const p of list) m[p.id] = String(p.price);
+        setPriceEdits(m);
+      }
+
+      if (usersData?.data) {
+        const profiles = usersData.data as Profile[];
+
+        try {
+          const emailRes = await supabase.rpc('get_all_emails');
+          if (emailRes.data && Array.isArray(emailRes.data)) {
+            const emailMap = new Map<string, string>();
+            for (const e of emailRes.data) {
+              if (e.user_id && e.email) emailMap.set(e.user_id, e.email);
+            }
+            setUsers(profiles.map(u => ({ ...u, email: emailMap.get(u.id) || null })));
+          } else {
+            setUsers(profiles);
           }
-          setUsers(profiles.map(u => ({ ...u, email: emailMap.get(u.id) || null })));
-        } else {
+        } catch {
           setUsers(profiles);
         }
-      } catch {
-        setUsers(profiles);
       }
+
+      if (newsRes.status === 'fulfilled' && newsRes.value.data) {
+        setNews(newsRes.value.data as NewsItem[]);
+      }
+
+      if (mediaRes.status === 'fulfilled' && mediaRes.value.data) {
+        const all = mediaRes.value.data as MediaApplication[];
+        const paymentPlanIds = ['30day', '90day', 'lifetime', 'hwid_reset'];
+        setMediaApps(all.filter(a => !paymentPlanIds.includes(a.channel_url)));
+        setPaymentRequests(all.filter(a => paymentPlanIds.includes(a.channel_url)) as PaymentRequest[]);
+      }
+    } catch (err) {
+      console.error('loadAll error:', err);
     }
 
-    if (newsRes.data) setNews(newsRes.data as NewsItem[]);
-    if (mediaRes.data) {
-      const all = mediaRes.data as MediaApplication[];
-      const paymentPlanIds = ['30day', '90day', 'lifetime'];
-      setMediaApps(all.filter(a => !paymentPlanIds.includes(a.channel_url)));
-      setPaymentRequests(all.filter(a => paymentPlanIds.includes(a.channel_url)) as PaymentRequest[]);
-    }
     setLoading(false);
   };
 
