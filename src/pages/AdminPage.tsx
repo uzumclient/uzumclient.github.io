@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import {
   Shield, Users, Newspaper, Megaphone, Search, Crown, Cpu,
   Ban, CheckCircle, XCircle, Trash2, Plus, Minus, Loader2, AlertCircle,
-  Calendar, Clock, X, Edit3, RefreshCw, CreditCard, ExternalLink, Key, Zap, Star,
+  Calendar, Clock, X, Edit3, CreditCard, ExternalLink, Key, Zap, Star,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { supabase, type Profile, type NewsItem, type MediaApplication, type PaymentRequest, type PromoCode, type PlanPrice } from '@/lib/supabase';
@@ -26,7 +26,6 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
   const [prices, setPrices] = useState<PlanPrice[]>([]);
   const [priceEdits, setPriceEdits] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
-  const [diag, setDiag] = useState<string>('');
   const [search, setSearch] = useState('');
   const [actionLoading, setActionLoading] = useState<string | null>(null);
   const [showNewsModal, setShowNewsModal] = useState(false);
@@ -59,15 +58,6 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
       safeQuery(supabase.from('plan_prices').select('*').order('id', { ascending: true })),
       safeQuery(supabase.rpc('get_all_emails')),
     ]);
-
-    const stat = (r: PromiseSettledResult<any>, name: string) => {
-      if (r.status === 'rejected') return `${name}:TIMEOUT/ERR`;
-      const v = r.value as any;
-      if (v?.error) return `${name}:ERR(${v.error.message || v.error.code || 'unknown'})`;
-      const n = Array.isArray(v?.data) ? v.data.length : (v?.data ? 1 : 0);
-      return `${name}:${n}`;
-    };
-    setDiag([stat(usersRes, 'users'), stat(newsRes, 'news'), stat(mediaRes, 'media'), stat(promoRes, 'promo'), stat(pricesRes, 'prices'), stat(emailRes, 'emails')].join(' | '));
 
     const profiles = usersRes.status === 'fulfilled' ? ((usersRes.value as any)?.data as Profile[] | null) : null;
 
@@ -353,6 +343,30 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
     setActionLoading(null);
   };
 
+  const deletePayment = async (id: string) => {
+    if (!confirm("Bu to'lov so'rovini butunlay o'chirishni xohlaysizmi?")) return;
+    setActionLoading(id);
+    const { error } = await supabase.from('media_applications').delete().eq('id', id);
+    if (!error) {
+      setPaymentRequests(paymentRequests.filter(p => p.id !== id));
+    } else {
+      alert("Xatolik: o'chirilmadi. " + error.message);
+    }
+    setActionLoading(null);
+  };
+
+  const deleteMediaApp = async (id: string) => {
+    if (!confirm("Bu media so'rovni butunlay o'chirishni xohlaysizmi?")) return;
+    setActionLoading(id);
+    const { error } = await supabase.from('media_applications').delete().eq('id', id);
+    if (!error) {
+      setMediaApps(mediaApps.filter(a => a.id !== id));
+    } else {
+      alert("Xatolik: o'chirilmadi. " + error.message);
+    }
+    setActionLoading(null);
+  };
+
   const filteredUsers = users.filter(u =>
     u.username.toLowerCase().includes(search.toLowerCase())
   );
@@ -383,29 +397,15 @@ export function AdminPage({ onNavigate }: AdminPageProps) {
     <div className="min-h-screen pt-24 pb-12 px-4 sm:px-6 lg:px-8">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex items-center gap-3 mb-4">
+        <div className="flex items-center gap-3 mb-8">
           <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-warning-500 to-warning-700 flex items-center justify-center shadow-lg shadow-warning-500/30">
             <Shield className="w-6 h-6 text-white" />
           </div>
-          <div className="flex-1">
+          <div>
             <h1 className="font-display font-bold text-3xl text-white">Admin panel</h1>
             <p className="text-sm text-gray-400">Barcha hisoblarni boshqaring</p>
           </div>
-          <button
-            onClick={() => loadAll()}
-            disabled={loading}
-            className="px-4 py-2.5 rounded-xl glass-card text-sm font-medium text-white hover:bg-white/10 transition-all flex items-center gap-2 disabled:opacity-50"
-            title="Ma'lumotlarni qayta yuklash"
-          >
-            <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
-            Yangilash
-          </button>
         </div>
-        {diag && (
-          <div className="mb-4 px-4 py-2 rounded-xl bg-black/30 border border-white/5">
-            <p className="font-mono text-[11px] text-gray-500 break-all">DB: {diag}</p>
-          </div>
-        )}
 
         {/* Tabs */}
         <div className="glass rounded-2xl p-1.5 flex gap-1 mb-6 overflow-x-auto no-scrollbar">
@@ -683,26 +683,37 @@ Yangilik qo'shish
                         </p>
                       </div>
 
-                      {app.status === 'pending' && (
-                        <div className="flex gap-2 flex-shrink-0">
-                          <button
-                            onClick={() => reviewMediaApp(app.id, 'approved')}
-                            disabled={actionLoading === app.id}
-                            className="px-3 py-2 rounded-xl glass-card text-xs font-medium text-success-300 hover:bg-success-500/10 transition-all flex items-center gap-1.5 disabled:opacity-50"
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                            Tasdiqlash
-                          </button>
-                          <button
-                            onClick={() => reviewMediaApp(app.id, 'rejected')}
-                            disabled={actionLoading === app.id}
-                            className="px-3 py-2 rounded-xl glass-card text-xs font-medium text-error-300 hover:bg-error-500/10 transition-all flex items-center gap-1.5 disabled:opacity-50"
-                          >
-                            <XCircle className="w-4 h-4" />
-                            Rad etish
-                          </button>
-                        </div>
-                      )}
+                      <div className="flex gap-2 flex-shrink-0">
+                        {app.status === 'pending' && (
+                          <>
+                            <button
+                              onClick={() => reviewMediaApp(app.id, 'approved')}
+                              disabled={actionLoading === app.id}
+                              className="px-3 py-2 rounded-xl glass-card text-xs font-medium text-success-300 hover:bg-success-500/10 transition-all flex items-center gap-1.5 disabled:opacity-50"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                              Tasdiqlash
+                            </button>
+                            <button
+                              onClick={() => reviewMediaApp(app.id, 'rejected')}
+                              disabled={actionLoading === app.id}
+                              className="px-3 py-2 rounded-xl glass-card text-xs font-medium text-error-300 hover:bg-error-500/10 transition-all flex items-center gap-1.5 disabled:opacity-50"
+                            >
+                              <XCircle className="w-4 h-4" />
+                              Rad etish
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={() => deleteMediaApp(app.id)}
+                          disabled={actionLoading === app.id}
+                          className="px-3 py-2 rounded-xl glass-card text-xs font-medium text-gray-400 hover:bg-error-500/10 hover:text-error-300 transition-all flex items-center gap-1.5 disabled:opacity-50"
+                          title="Butunlay o'chirish"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          O'chirish
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
@@ -777,26 +788,37 @@ Yangilik qo'shish
                         )}
                       </div>
 
-                      {req.status === 'pending' && (
-                        <div className="flex gap-2 flex-shrink-0">
-                          <button
-                            onClick={() => reviewPayment(req.id, 'approved')}
-                            disabled={actionLoading === req.id}
-                            className="px-3 py-2 rounded-xl glass-card text-xs font-medium text-success-300 hover:bg-success-500/10 transition-all flex items-center gap-1.5 disabled:opacity-50"
-                          >
-                            <CheckCircle className="w-4 h-4" />
-                            Tasdiqlash
-                          </button>
-                          <button
-                            onClick={() => reviewPayment(req.id, 'rejected')}
-                            disabled={actionLoading === req.id}
-                            className="px-3 py-2 rounded-xl glass-card text-xs font-medium text-error-300 hover:bg-error-500/10 transition-all flex items-center gap-1.5 disabled:opacity-50"
-                          >
-                            <XCircle className="w-4 h-4" />
-                            Rad etish
-                          </button>
-                        </div>
-                      )}
+                      <div className="flex gap-2 flex-shrink-0">
+                        {req.status === 'pending' && (
+                          <>
+                            <button
+                              onClick={() => reviewPayment(req.id, 'approved')}
+                              disabled={actionLoading === req.id}
+                              className="px-3 py-2 rounded-xl glass-card text-xs font-medium text-success-300 hover:bg-success-500/10 transition-all flex items-center gap-1.5 disabled:opacity-50"
+                            >
+                              <CheckCircle className="w-4 h-4" />
+                              Tasdiqlash
+                            </button>
+                            <button
+                              onClick={() => reviewPayment(req.id, 'rejected')}
+                              disabled={actionLoading === req.id}
+                              className="px-3 py-2 rounded-xl glass-card text-xs font-medium text-error-300 hover:bg-error-500/10 transition-all flex items-center gap-1.5 disabled:opacity-50"
+                            >
+                              <XCircle className="w-4 h-4" />
+                              Rad etish
+                            </button>
+                          </>
+                        )}
+                        <button
+                          onClick={() => deletePayment(req.id)}
+                          disabled={actionLoading === req.id}
+                          className="px-3 py-2 rounded-xl glass-card text-xs font-medium text-gray-400 hover:bg-error-500/10 hover:text-error-300 transition-all flex items-center gap-1.5 disabled:opacity-50"
+                          title="Butunlay o'chirish"
+                        >
+                          <Trash2 className="w-4 h-4" />
+                          O'chirish
+                        </button>
+                      </div>
                     </div>
                   </div>
                 ))}
